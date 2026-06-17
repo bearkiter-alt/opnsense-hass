@@ -21,6 +21,7 @@ from .api import (
     OPNSenseClient,
     OPNSenseConnectionError,
     OPNSenseError,
+    OPNSensePrivilegeError,
 )
 from .const import (
     CONF_API_KEY,
@@ -92,6 +93,8 @@ class OPNSenseConfigFlow(ConfigFlow, domain=DOMAIN):
                 await _validate(self.hass, user_input)
             except OPNSenseAuthError:
                 errors["base"] = "invalid_auth"
+            except OPNSensePrivilegeError:
+                errors["base"] = "insufficient_privileges"
             except OPNSenseConnectionError:
                 errors["base"] = "cannot_connect"
             except OPNSenseError:
@@ -148,6 +151,8 @@ class OPNSenseConfigFlow(ConfigFlow, domain=DOMAIN):
                 await _validate(self.hass, merged)
             except OPNSenseAuthError:
                 errors["base"] = "invalid_auth"
+            except OPNSensePrivilegeError:
+                errors["base"] = "insufficient_privileges"
             except OPNSenseError:
                 errors["base"] = "cannot_connect"
             except Exception:  # noqa: BLE001  pylint: disable=broad-except

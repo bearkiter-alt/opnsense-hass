@@ -27,7 +27,11 @@ class OPNSenseError(Exception):
 
 
 class OPNSenseAuthError(OPNSenseError):
-    """Authentication/authorization failure (HTTP 401/403)."""
+    """Authentication failure — bad API key/secret (HTTP 401)."""
+
+
+class OPNSensePrivilegeError(OPNSenseError):
+    """Authenticated, but the API user lacks the required privilege (HTTP 403)."""
 
 
 class OPNSenseConnectionError(OPNSenseError):
@@ -84,7 +88,15 @@ class OPNSenseClient:
         also passes ``ssl=False`` per-request when ``verify_ssl`` is False, as a
         belt-and-suspenders for self-signed HTTPS endpoints.
         """
-        self._base = url.rstrip("/") + API_PREFIX
+        # Normalise the user-supplied base URL: default to http:// when no
+        # scheme is given (a schemeless URL makes aiohttp raise InvalidUrlClientError),
+        # and tolerate a trailing /api since we always append it ourselves.
+        clean = url.strip().rstrip("/")
+        if not clean.startswith(("http://", "https://")):
+            clean = "http://" + clean
+        if clean.endswith(API_PREFIX):
+            clean = clean[: -len(API_PREFIX)]
+        self._base = clean + API_PREFIX
         self._auth = aiohttp.BasicAuth(api_key, api_secret)
         self._session = session
         self._verify_ssl = verify_ssl
@@ -133,9 +145,14 @@ class OPNSenseClient:
             async with self._session.request(method, url, **kwargs) as resp:
                 status = resp.status
 
-                if status in (401, 403):
+                if status == 401:
                     raise OPNSenseAuthError(
-                        f"Authentication failed (HTTP {status})"
+                        "Invalid API key or secret (HTTP 401)."
+                    )
+                if status == 403:
+                    raise OPNSensePrivilegeError(
+                        "Authenticated, but the API user lacks the required "
+                        "privileges (HTTP 403)."
                     )
 
                 if status >= 400:

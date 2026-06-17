@@ -28,7 +28,14 @@ automation, but useful for any OPNsense control from HA.
 
 - **Home Assistant 2026.6+**.
 - An **OPNsense API key/secret** pair. Create one under
-  *System > Access > Users > (edit user) > API keys*.
+  *System > Access > Users > (edit user) > API keys*. **The API user needs privileges** for
+  the endpoints used — at minimum *System: Firmware* (setup validation) plus *Firewall: Aliases*
+  for the block/unblock services. A brand-new user with **no privileges** authenticates but gets
+  HTTP 403, shown as "insufficient privileges" — an admin user is simplest.
+- The **URL** is the base host, e.g. `http://192.168.1.1` — include `http://` and **no** `/api`
+  suffix. Use `http` unless your opnsense serves the API over HTTPS *and* that port is reachable
+  from Home Assistant. (The integration now tolerates a missing scheme or a trailing `/api`, but
+  being explicit avoids surprises.)
 - A **pre-existing GUI firewall rule** that references the host alias you intend to
   manage (e.g. a block rule with source set to the `KidsBlocked` alias). The
   integration manages the alias *contents*; the rule that acts on those contents must
