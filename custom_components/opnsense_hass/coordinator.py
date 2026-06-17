@@ -1,6 +1,8 @@
 """DataUpdateCoordinator for the opnsense_hass integration."""
 from __future__ import annotations
 
+import time
+from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from typing import Any
 
@@ -14,18 +16,25 @@ from .api import OPNSenseAuthError, OPNSenseClient, OPNSenseError
 from .const import (
     CONF_NAME,
     CONF_SCAN_INTERVAL,
+    CONF_TOP_INTERFACE,
     CONF_TRACKED_ALIASES,
     CONF_URL,
+    DATA_ALIAS_DEVICES,
     DATA_ALIAS_ITEMS,
     DATA_ALIASES,
     DATA_FIRMWARE,
     DATA_GATEWAYS,
+    DATA_HOSTS,
     DATA_RULES,
     DATA_SYSTEM,
+    DATA_TOP_TALKERS,
+    DATA_TRAFFIC,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_TOP_INTERFACE,
     DOMAIN,
     LOGGER,
     MANUFACTURER,
+    TOP_TALKERS_LIMIT,
 )
 
 type OPNSenseConfigEntry = ConfigEntry[OPNSenseCoordinator]
@@ -53,6 +62,19 @@ def _to_bool(v: Any) -> bool:
     Alias/rule rows return ``enabled`` as ``"1"``/``"0"`` (or ``1``/``0``).
     """
     return str(v) in ("1", "True", "true")
+
+
+def _to_int(s: Any) -> int | None:
+    """Parse a counter (string or int) into an int, or None on failure.
+
+    Interface byte/packet counters arrive as strings (e.g. ``"49928705960"``).
+    """
+    if s is None:
+        return None
+    try:
+        return int(str(s).strip())
+    except (ValueError, TypeError):
+        return None
 
 
 def _normalize_updates(updates: Any) -> Any:
@@ -106,11 +128,22 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self.client = client
         self.device_info: DeviceInfo | None = None
+        # device-name map (vtnet0 -> "LAN"), fetched once in _async_setup.
+        self._if_names: dict[str, str] = {}
+        # per-interface previous (bytes_in, bytes_out, monotonic_ts) for rate calc.
+        self._prev_traffic: dict[str, tuple[int, int, float]] = {}
 
     @property
     def tracked_aliases(self) -> list[str]:
         """Alias names selected for live polling / extra entities."""
         return self.config_entry.options.get(CONF_TRACKED_ALIASES, [])
+
+    @property
+    def top_interface(self) -> str:
+        """Interface key polled for top-talkers (default the LAN side)."""
+        return self.config_entry.options.get(
+            CONF_TOP_INTERFACE, DEFAULT_TOP_INTERFACE
+        )
 
     async def _async_setup(self) -> None:
         """One-time setup: build the device identity from firmware + sysinfo."""
@@ -121,6 +154,14 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             raise ConfigEntryAuthFailed(str(err)) from err
         except OPNSenseError as err:
             raise UpdateFailed(str(err)) from err
+
+        # Interface friendly-name map is best-effort; missing it only costs us
+        # nicer entity names, never the whole setup.
+        try:
+            self._if_names = await self.client.interface_names()
+        except OPNSenseError as err:
+            LOGGER.debug("interface_names unavailable: %s", err)
+            self._if_names = {}
 
         product = (fw or {}).get("product", {})
         if not isinstance(product, dict):
@@ -161,10 +202,25 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     LOGGER.debug(
                         "Skipping live items for alias %s: %s", name, err
                     )
+
+            # Best-effort extras: a missing privilege or disabled plugin must
+            # not take down the core poll, so each falls back to a default.
+            traffic_raw = await self._safe(self.client.traffic_interfaces, {})
+            dhcp_rows = await self._safe(self.client.dhcp_leases, [])
+            arp_rows = await self._safe(self.client.arp_table, [])
+            top_records = await self._safe(
+                lambda: self.client.top_talkers(self.top_interface), []
+            )
         except OPNSenseAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except OPNSenseError as err:
             raise UpdateFailed(str(err)) from err
+
+        hosts = self._build_hosts(dhcp_rows, arp_rows)
+        alias_devices = {
+            name: [self._device_for(ip, hosts) for ip in ips]
+            for name, ips in alias_items.items()
+        }
 
         return {
             DATA_FIRMWARE: self._build_firmware(fw),
@@ -173,7 +229,28 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             DATA_ALIASES: self._build_aliases(aliases_raw),
             DATA_ALIAS_ITEMS: alias_items,
             DATA_RULES: self._build_rules(rules_raw),
+            DATA_HOSTS: hosts,
+            DATA_TRAFFIC: self._build_traffic(traffic_raw),
+            DATA_TOP_TALKERS: self._build_top(top_records, hosts),
+            DATA_ALIAS_DEVICES: alias_devices,
         }
+
+    async def _safe(
+        self, factory: Callable[[], Awaitable[Any]], default: Any
+    ) -> Any:
+        """Await an optional API call, swallowing non-auth errors.
+
+        Auth failures are re-raised so the caller converts them to
+        ConfigEntryAuthFailed; any other OPNsense error returns ``default`` so a
+        single unavailable endpoint never fails the whole refresh.
+        """
+        try:
+            return await factory()
+        except OPNSenseAuthError:
+            raise
+        except OPNSenseError as err:
+            LOGGER.debug("optional fetch failed, using default: %s", err)
+            return default
 
     # ------------------------------------------------------------------
     # Normalization helpers
@@ -268,3 +345,141 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "sequence": row.get("sequence"),
             }
         return rules
+
+    # ------------------------------------------------------------------
+    # Host identity + traffic builders
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _build_hosts(
+        dhcp_rows: list[dict], arp_rows: list[dict]
+    ) -> dict[str, dict[str, Any]]:
+        """Build an ip -> {mac, name, manufacturer, online} identity index.
+
+        DHCP leases are the primary source (they carry a hostname/description);
+        ARP fills in static-IP devices and any MAC/manufacturer still missing.
+        """
+        hosts: dict[str, dict[str, Any]] = {}
+        for lease in dhcp_rows:
+            if not isinstance(lease, dict):
+                continue
+            ip = lease.get("address")
+            if not ip:
+                continue
+            hostname = (lease.get("hostname") or "").strip()
+            hosts[ip] = {
+                "mac": (lease.get("mac") or "").strip() or None,
+                "name": (lease.get("descr") or "").strip() or hostname,
+                "hostname": hostname,
+                "manufacturer": (lease.get("man") or "").strip(),
+                "online": str(lease.get("status", "")).lower() == "online",
+            }
+        for arp in arp_rows:
+            if not isinstance(arp, dict):
+                continue
+            ip = arp.get("ip")
+            if not ip:
+                continue
+            mac = (arp.get("mac") or "").strip() or None
+            manuf = (arp.get("manufacturer") or "").strip()
+            host = hosts.get(ip)
+            if host is None:
+                hostname = (arp.get("hostname") or "").strip()
+                hosts[ip] = {
+                    "mac": mac,
+                    "name": hostname,
+                    "hostname": hostname,
+                    "manufacturer": manuf,
+                    # An ARP entry that has not expired means the host is live.
+                    "online": not arp.get("expired", False),
+                }
+            else:
+                if not host.get("mac"):
+                    host["mac"] = mac
+                if not host.get("manufacturer"):
+                    host["manufacturer"] = manuf
+        return hosts
+
+    @staticmethod
+    def _device_for(ip: str, hosts: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """Resolve an IP into a friendly device dict, falling back to the IP."""
+        host = hosts.get(ip, {})
+        name = (
+            host.get("name")
+            or host.get("hostname")
+            or host.get("manufacturer")
+            or ip
+        )
+        return {
+            "ip": ip,
+            "mac": host.get("mac"),
+            "name": name,
+            "manufacturer": host.get("manufacturer") or None,
+            "online": host.get("online"),
+        }
+
+    def _build_traffic(
+        self, interfaces: dict[str, dict]
+    ) -> dict[str, dict[str, Any]]:
+        """Normalize per-interface counters and derive in/out bit rates.
+
+        Rates come from the delta against the previous poll (bytes*8/seconds);
+        the first poll and any counter reset yield ``None`` until the next pass.
+        """
+        now = time.monotonic()
+        out: dict[str, dict[str, Any]] = {}
+        for iface, info in (interfaces or {}).items():
+            if not isinstance(info, dict):
+                continue
+            device = info.get("device")
+            bytes_in = _to_int(info.get("bytes received"))
+            bytes_out = _to_int(info.get("bytes transmitted"))
+            rate_in: float | None = None
+            rate_out: float | None = None
+            prev = self._prev_traffic.get(iface)
+            if prev and bytes_in is not None and bytes_out is not None:
+                p_in, p_out, p_ts = prev
+                dt = now - p_ts
+                if dt > 0:
+                    if bytes_in >= p_in:
+                        rate_in = (bytes_in - p_in) * 8 / dt
+                    if bytes_out >= p_out:
+                        rate_out = (bytes_out - p_out) * 8 / dt
+            if bytes_in is not None and bytes_out is not None:
+                self._prev_traffic[iface] = (bytes_in, bytes_out, now)
+            out[iface] = {
+                "device": device,
+                "label": self._if_names.get(device) or iface.upper(),
+                "bytes_in": bytes_in,
+                "bytes_out": bytes_out,
+                "packets_in": _to_int(info.get("packets received")),
+                "packets_out": _to_int(info.get("packets transmitted")),
+                "rate_in_bits": round(rate_in) if rate_in is not None else None,
+                "rate_out_bits": round(rate_out) if rate_out is not None else None,
+            }
+        return out
+
+    def _build_top(
+        self, records: list[dict], hosts: dict[str, dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """Enrich top-talker records with friendly names; sort + cap the list."""
+        talkers: list[dict[str, Any]] = []
+        for rec in records or []:
+            if not isinstance(rec, dict):
+                continue
+            ip = rec.get("address")
+            if not ip:
+                continue
+            device = self._device_for(ip, hosts)
+            talkers.append(
+                {
+                    "ip": ip,
+                    "name": device["name"],
+                    "mac": device["mac"],
+                    "rate_in_bits": rec.get("rate_bits_in"),
+                    "rate_out_bits": rec.get("rate_bits_out"),
+                    "rate_bits": rec.get("rate_bits"),
+                    "rate": rec.get("rate"),
+                }
+            )
+        talkers.sort(key=lambda t: t.get("rate_bits") or 0, reverse=True)
+        return talkers[:TOP_TALKERS_LIMIT]

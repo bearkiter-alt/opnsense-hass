@@ -28,11 +28,14 @@ from .const import (
     CONF_API_SECRET,
     CONF_NAME,
     CONF_SCAN_INTERVAL,
+    CONF_TOP_INTERFACE,
     CONF_TRACKED_ALIASES,
     CONF_URL,
     CONF_VERIFY_SSL,
     DATA_ALIASES,
+    DATA_TRAFFIC,
     DEFAULT_SCAN_INTERVAL,
+    DEFAULT_TOP_INTERFACE,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
     LOGGER,
@@ -199,6 +202,15 @@ class OPNSenseOptionsFlow(OptionsFlow):
         for tracked in current.get(CONF_TRACKED_ALIASES, []):
             alias_options.setdefault(tracked, f"{tracked} (missing)")
 
+        # Interface choices for top-talkers, labelled by friendly name. Always
+        # offer the current selection so the form renders before the first poll.
+        current_top = current.get(CONF_TOP_INTERFACE, DEFAULT_TOP_INTERFACE)
+        iface_options = {
+            key: (info.get("label") or key.upper())
+            for key, info in data.get(DATA_TRAFFIC, {}).items()
+        }
+        iface_options.setdefault(current_top, current_top)
+
         schema = vol.Schema(
             {
                 vol.Optional(
@@ -212,6 +224,10 @@ class OPNSenseOptionsFlow(OptionsFlow):
                     CONF_TRACKED_ALIASES,
                     default=current.get(CONF_TRACKED_ALIASES, []),
                 ): cv.multi_select(alias_options),
+                vol.Optional(
+                    CONF_TOP_INTERFACE,
+                    default=current_top,
+                ): vol.In(iface_options),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

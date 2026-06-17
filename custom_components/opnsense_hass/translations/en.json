@@ -39,10 +39,12 @@
         "title": "OPNsense options",
         "data": {
           "scan_interval": "Polling interval (seconds)",
-          "tracked_aliases": "Tracked host aliases"
+          "tracked_aliases": "Tracked host aliases",
+          "top_interface": "Top-talkers interface"
         },
         "data_description": {
-          "tracked_aliases": "Aliases to expose as item-count sensors and enable switches, and to poll live contents for."
+          "tracked_aliases": "Aliases to expose as item-count sensors and enable switches, and to poll live contents (devices with friendly names + MACs) for.",
+          "top_interface": "Interface whose top bandwidth users are listed by the Top talkers sensor (LAN = local devices)."
         }
       }
     }

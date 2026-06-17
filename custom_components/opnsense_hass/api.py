@@ -257,6 +257,70 @@ class OPNSenseClient:
             return rows if isinstance(rows, list) else []
         return []
 
+    async def interface_names(self) -> dict[str, str]:
+        """GET /diagnostics/interface/getInterfaceNames -> {device: friendly name}.
+
+        Maps the device name (``vtnet0``) to its configured description (``LAN``).
+        """
+        result = await self._get("/diagnostics/interface/getInterfaceNames")
+        return result if isinstance(result, dict) else {}
+
+    async def traffic_interfaces(self) -> dict[str, dict]:
+        """GET /diagnostics/traffic/interface -> the ``interfaces`` map.
+
+        Keyed by interface identifier (``lan``/``opt1``); each value carries
+        ``device`` plus cumulative ``bytes received``/``bytes transmitted`` and
+        ``packets received``/``packets transmitted`` counters (as strings).
+        """
+        result = await self._get("/diagnostics/traffic/interface")
+        if isinstance(result, dict):
+            interfaces = result.get("interfaces", {})
+            return interfaces if isinstance(interfaces, dict) else {}
+        return {}
+
+    async def top_talkers(self, interface: str) -> list[dict]:
+        """GET /diagnostics/traffic/top/{interface} -> that interface's ``records``.
+
+        Each record has ``address`` plus instantaneous ``rate_bits_in``/
+        ``rate_bits_out``/``rate_bits`` and cumulative byte counters. OPNsense
+        returns ``[]`` (not a dict) when the interface has no live flows.
+        """
+        result = await self._get(f"/diagnostics/traffic/top/{interface}")
+        if isinstance(result, dict):
+            section = result.get(interface, {})
+            if isinstance(section, dict):
+                records = section.get("records", [])
+                return records if isinstance(records, list) else []
+        return []
+
+    async def dhcp_leases(self) -> list[dict]:
+        """GET /dhcpv4/leases/searchLease -> the ``rows`` list.
+
+        Each row maps ``address`` -> ``mac``/``hostname``/``descr``/``man``
+        (manufacturer)/``status`` (online|offline) — the best source of friendly
+        device names.
+        """
+        result = await self._get("/dhcpv4/leases/searchLease")
+        if isinstance(result, dict):
+            rows = result.get("rows", [])
+            return rows if isinstance(rows, list) else []
+        return []
+
+    async def arp_table(self) -> list[dict]:
+        """POST /diagnostics/interface/search_arp -> the ``rows`` list.
+
+        Each row maps ``ip`` -> ``mac``/``manufacturer``/``hostname``; used to
+        fill in devices that have no DHCP lease (static IPs).
+        """
+        result = await self._post(
+            "/diagnostics/interface/search_arp",
+            {"current": 1, "rowCount": SEARCH_ROW_COUNT},
+        )
+        if isinstance(result, dict):
+            rows = result.get("rows", [])
+            return rows if isinstance(rows, list) else []
+        return []
+
     # ------------------------------------------------------------------
     # Write methods (low-level)
     # ------------------------------------------------------------------

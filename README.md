@@ -16,6 +16,12 @@ automation, but useful for any OPNsense control from HA.
   /disabling API-created firewall rules.
 - **Sensors** for gateway delay/loss, OPNsense version, updates-available count, and
   tracked-alias item counts.
+- **Traffic stats** — per-interface live in/out **bit rate** plus cumulative
+  **byte counters** (for the HA statistics/energy graphs).
+- **Top talkers** — the busiest local devices, each resolved to a **friendly
+  name + MAC** (from DHCP leases, with an ARP fallback).
+- **Alias device lists** — each tracked alias exposes its members as a `devices`
+  attribute carrying `{ip, mac, name, manufacturer, online}` per device.
 - A **full service set** (`alias_add_host`, `alias_remove_host`, `alias_flush`,
   `alias_set_hosts`, `alias_block_device`, `alias_unblock_device`, `toggle_rule`,
   `apply`) plus a raw **`exec_api`** passthrough that returns the parsed response.
@@ -71,7 +77,11 @@ After setup, open the integration's **Configure** dialog:
 
 - **`scan_interval`** — change the polling interval (seconds, 5–3600).
 - **`tracked_aliases`** — multi-select of host aliases to expose as item-count sensors
-  and enable switches, and to poll live contents for.
+  and enable switches, and to poll live contents (devices with friendly names + MACs)
+  for. Select e.g. `KidsBlocked` and `KidsSchool` to surface their members.
+- **`top_interface`** — the interface whose top bandwidth users feed the **Top talkers**
+  sensor. Defaults to `lan` (local devices); pick the WAN interface to rank by remote
+  endpoint instead.
 
 ## Entities
 
@@ -83,7 +93,15 @@ After setup, open the integration's **Configure** dialog:
   - **Version** — the OPNsense version string (diagnostic).
   - **Updates available** — count of pending updates (diagnostic).
   - Per tracked alias: **item count** — number of entries in the alias, with an
-    `addresses` attribute listing the live IPs.
+    `addresses` attribute (live IPs) and a `devices` attribute resolving each to
+    `{ip, mac, name, manufacturer, online}`.
+  - Per interface (e.g. `lan`, `opt1`/WAN): **received/transmitted rate**
+    (`data_rate`, bit/s — display defaults to Mbit/s) and cumulative
+    **received/transmitted** bytes (`data_size`, `total_increasing`). Rates are
+    derived from the poll-to-poll delta, so they appear from the second poll on.
+  - **Top talkers** — count of active talkers on the selected interface; the
+    ranked, name-resolved list (`{ip, name, mac, rate_in_bits, rate_out_bits}`)
+    is in the `talkers` attribute.
 - **Switches**
   - Per **API-created firewall rule** — enable/disable the rule (then applies the
     ruleset). *Note:* GUI-created rules do not appear here; only rules created via the

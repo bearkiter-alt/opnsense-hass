@@ -25,12 +25,15 @@ CONF_VERIFY_SSL: Final = "verify_ssl"
 # ---- Options keys ----
 CONF_SCAN_INTERVAL: Final = "scan_interval"
 CONF_TRACKED_ALIASES: Final = "tracked_aliases"   # list[str] of alias NAMES
+CONF_TOP_INTERFACE: Final = "top_interface"        # interface key for top-talkers (e.g. "lan")
 
 # ---- Defaults ----
 DEFAULT_VERIFY_SSL: Final = False
 DEFAULT_SCAN_INTERVAL: Final = 30                  # seconds
 MIN_SCAN_INTERVAL: Final = 5
 MAX_SCAN_INTERVAL: Final = 3600
+DEFAULT_TOP_INTERFACE: Final = "lan"               # local side = top *device* talkers
+TOP_TALKERS_LIMIT: Final = 10                      # max talkers exposed in the attribute
 
 # ---- API ----
 API_PREFIX: Final = "/api"
@@ -44,6 +47,10 @@ DATA_GATEWAYS: Final = "gateways"          # dict[gw_name, gw_dict]
 DATA_ALIASES: Final = "aliases"            # dict[alias_name, alias_dict]
 DATA_ALIAS_ITEMS: Final = "alias_items"    # dict[alias_name, list[str ip]]  (tracked only)
 DATA_RULES: Final = "rules"                # dict[uuid, rule_dict]
+DATA_TRAFFIC: Final = "traffic"            # dict[iface_key, traffic_dict] (bytes/packets/rates)
+DATA_TOP_TALKERS: Final = "top_talkers"    # list[talker_dict], sorted desc by rate_bits
+DATA_HOSTS: Final = "hosts"                # dict[ip, host_dict] — DHCP+ARP identity index
+DATA_ALIAS_DEVICES: Final = "alias_devices"  # dict[alias_name, list[device_dict]] (tracked only)
 
 # ---- Service names ----
 SERVICE_ALIAS_ADD_HOST: Final = "alias_add_host"
