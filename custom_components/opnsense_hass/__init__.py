@@ -54,6 +54,9 @@ from .const import (
 )
 from .coordinator import OPNSenseConfigEntry, OPNSenseCoordinator
 
+# This integration is set up only from config entries (no YAML configuration).
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
 # ---------------------------------------------------------------------------
 # Service voluptuous schemas (§13 — NORMATIVE)
 # ---------------------------------------------------------------------------

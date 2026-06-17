@@ -120,8 +120,8 @@
     }
   },
   "exceptions": {
-    "alias_not_found": { "message": "No configured OPNsense entry owns alias '{alias}'." },
-    "rule_not_found": { "message": "No configured OPNsense entry owns rule '{uuid}'." },
+    "alias_not_found": { "message": "No configured OPNsense entry owns alias {alias}." },
+    "rule_not_found": { "message": "No configured OPNsense entry owns rule {uuid}." },
     "no_single_entry": { "message": "This action requires exactly one configured OPNsense entry." }
   }
 }
