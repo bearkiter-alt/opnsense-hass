@@ -22,6 +22,10 @@ automation, but useful for any OPNsense control from HA.
   name + MAC** (from DHCP leases, with an ARP fallback).
 - **Alias device lists** — each tracked alias exposes its members as a `devices`
   attribute carrying `{ip, mac, name, manufacturer, online}` per device.
+- **System health** — CPU usage (normalised load) + load average, memory / swap /
+  disk usage, uptime, firewall state-table + mbuf usage, running-services count,
+  DHCP-lease + ARP counts, ZFS ARC size, per-interface link state, and an
+  updates-pending flag.
 - A **full service set** (`alias_add_host`, `alias_remove_host`, `alias_flush`,
   `alias_set_hosts`, `alias_block_device`, `alias_unblock_device`, `toggle_rule`,
   `apply`) plus a raw **`exec_api`** passthrough that returns the parsed response.
@@ -88,9 +92,12 @@ After setup, open the integration's **Configure** dialog:
 
 ## Entities
 
-- **Binary sensor** — one per gateway, device class `connectivity`. `on` = the gateway
-  is online (derived from the translated gateway status). Attributes: `address`,
-  `monitor`, `loss`, `delay`.
+- **Binary sensors**
+  - One per gateway, device class `connectivity`. `on` = the gateway is online
+    (derived from the translated gateway status). Attributes: `address`,
+    `monitor`, `loss`, `delay`.
+  - Per interface — **link** state (`connectivity`, `on` = link up).
+  - **Updates pending** (`update`) — `on` when OPNsense reports pending updates.
 - **Sensors**
   - Per gateway: **delay** (ms, duration) and **loss** (%, disabled by default — noisy).
   - **Version** — the OPNsense version string (diagnostic).
@@ -105,6 +112,12 @@ After setup, open the integration's **Configure** dialog:
   - **Top talkers** — count of active talkers on the selected interface; the
     ranked, name-resolved list (`{ip, name, mac, rate_in_bits, rate_out_bits}`)
     is in the `talkers` attribute.
+  - **System health** — **CPU usage** (% = load ÷ cores; load 1/5/15m + model in
+    attributes), **load average**, **memory** / **swap** / **disk** usage (%),
+    **memory used** + **ZFS ARC** size (MB), **uptime**, **firewall states**
+    (count) + **state-table usage** (%), **mbuf usage** (%), **services running**
+    (with the stopped list in attributes), **DHCP leases online** / **total**, and
+    **ARP entries**. Disk carries every filesystem in a `filesystems` attribute.
 - **Switches**
   - Per **API-created firewall rule** — enable/disable the rule (then applies the
     ruleset). *Note:* GUI-created rules do not appear here; only rules created via the

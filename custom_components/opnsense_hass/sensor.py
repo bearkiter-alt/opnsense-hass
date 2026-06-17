@@ -15,11 +15,14 @@ device and read their values straight from ``coordinator.data``.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
+    SensorEntityDescription,
     SensorStateClass,
 )
 from homeassistant.const import (
@@ -39,6 +42,7 @@ from .const import (
     DATA_ALIAS_ITEMS,
     DATA_ALIASES,
     DATA_GATEWAYS,
+    DATA_HEALTH,
     DATA_SYSTEM,
     DATA_TOP_TALKERS,
     DATA_TRAFFIC,
@@ -47,6 +51,182 @@ from .coordinator import OPNSenseConfigEntry, OPNSenseCoordinator
 
 # Direction key ("in"/"out") -> the OPNsense-perspective word used in names.
 _DIRECTION_LABEL = {"in": "received", "out": "transmitted"}
+
+
+@dataclass(frozen=True, kw_only=True)
+class OPNSenseHealthSensorDescription(SensorEntityDescription):
+    """Describes a system-health sensor read from the DATA_HEALTH dict."""
+
+    value_fn: Callable[[dict[str, Any]], StateType]
+    attrs_fn: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+
+
+HEALTH_SENSORS: tuple[OPNSenseHealthSensorDescription, ...] = (
+    OPNSenseHealthSensorDescription(
+        key="cpu_usage",
+        name="CPU usage",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        icon="mdi:cpu-64-bit",
+        value_fn=lambda h: h.get("cpu_usage"),
+        attrs_fn=lambda h: {
+            "load_1m": h.get("load_1m"),
+            "load_5m": h.get("load_5m"),
+            "load_15m": h.get("load_15m"),
+            "cores": h.get("cpu_cores"),
+            "model": h.get("cpu_model"),
+        },
+    ),
+    OPNSenseHealthSensorDescription(
+        key="load_1m",
+        name="Load average",
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=2,
+        icon="mdi:gauge",
+        value_fn=lambda h: h.get("load_1m"),
+        attrs_fn=lambda h: {
+            "1m": h.get("load_1m"),
+            "5m": h.get("load_5m"),
+            "15m": h.get("load_15m"),
+        },
+    ),
+    OPNSenseHealthSensorDescription(
+        key="memory_usage",
+        name="Memory usage",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        icon="mdi:memory",
+        value_fn=lambda h: h.get("memory_usage"),
+        attrs_fn=lambda h: {
+            "used_mb": h.get("memory_used_mb"),
+            "total_mb": h.get("memory_total_mb"),
+            "arc_mb": h.get("arc_mb"),
+        },
+    ),
+    OPNSenseHealthSensorDescription(
+        key="swap_usage",
+        name="Swap usage",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        icon="mdi:harddisk",
+        value_fn=lambda h: h.get("swap_usage"),
+    ),
+    OPNSenseHealthSensorDescription(
+        key="disk_usage",
+        name="Disk usage",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:harddisk",
+        value_fn=lambda h: h.get("disk_usage"),
+        attrs_fn=lambda h: {"filesystems": h.get("filesystems")},
+    ),
+    OPNSenseHealthSensorDescription(
+        key="uptime",
+        name="Uptime",
+        device_class=SensorDeviceClass.DURATION,
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        suggested_unit_of_measurement=UnitOfTime.DAYS,
+        suggested_display_precision=2,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("uptime_seconds"),
+        attrs_fn=lambda h: {"uptime": h.get("uptime")},
+    ),
+    OPNSenseHealthSensorDescription(
+        key="states_current",
+        name="Firewall states",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:state-machine",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("states_current"),
+        attrs_fn=lambda h: {
+            "limit": h.get("states_limit"),
+            "usage_percent": h.get("states_usage"),
+        },
+    ),
+    OPNSenseHealthSensorDescription(
+        key="states_usage",
+        name="State table usage",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        icon="mdi:state-machine",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("states_usage"),
+    ),
+    OPNSenseHealthSensorDescription(
+        key="mbuf_usage",
+        name="mbuf usage",
+        native_unit_of_measurement=PERCENTAGE,
+        state_class=SensorStateClass.MEASUREMENT,
+        suggested_display_precision=1,
+        icon="mdi:network",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("mbuf_usage"),
+        attrs_fn=lambda h: {
+            "current": h.get("mbuf_current"),
+            "max": h.get("mbuf_max"),
+        },
+    ),
+    OPNSenseHealthSensorDescription(
+        key="services_running",
+        name="Services running",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:cogs",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("services_running"),
+        attrs_fn=lambda h: {
+            "total": h.get("services_total"),
+            "stopped": h.get("services_stopped"),
+        },
+    ),
+    OPNSenseHealthSensorDescription(
+        key="dhcp_online",
+        name="DHCP leases online",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:ip-network",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("dhcp_online"),
+        attrs_fn=lambda h: {"total": h.get("dhcp_total")},
+    ),
+    OPNSenseHealthSensorDescription(
+        key="dhcp_total",
+        name="DHCP leases total",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:ip-network-outline",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("dhcp_total"),
+    ),
+    OPNSenseHealthSensorDescription(
+        key="arp_entries",
+        name="ARP entries",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:lan",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("arp_entries"),
+    ),
+    OPNSenseHealthSensorDescription(
+        key="memory_used_mb",
+        name="Memory used",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("memory_used_mb"),
+    ),
+    OPNSenseHealthSensorDescription(
+        key="arc_mb",
+        name="ZFS ARC size",
+        device_class=SensorDeviceClass.DATA_SIZE,
+        native_unit_of_measurement=UnitOfInformation.MEGABYTES,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:database",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda h: h.get("arc_mb"),
+    ),
+)
 
 
 async def async_setup_entry(
@@ -79,6 +259,12 @@ async def async_setup_entry(
 
     # Top-talkers summary (always present; the list lives in its attributes).
     entities.append(OPNSenseTopTalkersSensor(coordinator))
+
+    # System-health sensors — created only for metrics this API user can read.
+    health = coordinator.data.get(DATA_HEALTH, {})
+    for desc in HEALTH_SENSORS:
+        if desc.value_fn(health) is not None:
+            entities.append(OPNSenseHealthSensor(coordinator, desc))
 
     # Per-tracked-alias item-count sensors (only for aliases that exist).
     aliases: dict[str, Any] = coordinator.data.get(DATA_ALIASES, {})
@@ -384,3 +570,38 @@ class OPNSenseTopTalkersSensor(
             "interface": self.coordinator.top_interface,
             "talkers": self.coordinator.data.get(DATA_TOP_TALKERS, []),
         }
+
+
+class OPNSenseHealthSensor(CoordinatorEntity[OPNSenseCoordinator], SensorEntity):
+    """A single system-health metric read from the coordinator DATA_HEALTH dict."""
+
+    _attr_has_entity_name = True
+    entity_description: OPNSenseHealthSensorDescription
+
+    def __init__(
+        self,
+        coordinator: OPNSenseCoordinator,
+        description: OPNSenseHealthSensorDescription,
+    ) -> None:
+        """Initialise a health sensor from its description."""
+        super().__init__(coordinator)
+        self.entity_description = description
+        self._attr_unique_id = (
+            f"{coordinator.config_entry.entry_id}_{description.key}"
+        )
+        self._attr_device_info = coordinator.device_info
+
+    @callback
+    def _health(self) -> dict[str, Any]:
+        return self.coordinator.data.get(DATA_HEALTH, {})
+
+    @property
+    def native_value(self) -> StateType:
+        """Return the metric value via the description's value function."""
+        return self.entity_description.value_fn(self._health())
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Return the description's attributes, if any."""
+        attrs_fn = self.entity_description.attrs_fn
+        return attrs_fn(self._health()) if attrs_fn else None

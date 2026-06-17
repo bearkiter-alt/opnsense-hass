@@ -321,6 +321,71 @@ class OPNSenseClient:
             return rows if isinstance(rows, list) else []
         return []
 
+    async def cpu_type(self) -> str:
+        """GET /diagnostics/cpu_usage/getCPUType -> the CPU description string.
+
+        OPNsense returns a single-element list, e.g.
+        ``["Common KVM processor (4 cores, 4 threads)"]``.
+        """
+        result = await self._get("/diagnostics/cpu_usage/getCPUType")
+        if isinstance(result, list) and result:
+            return str(result[0])
+        if isinstance(result, str):
+            return result
+        return ""
+
+    async def system_time(self) -> dict:
+        """GET /diagnostics/system/systemTime -> uptime/boottime/loadavg dict."""
+        result = await self._get("/diagnostics/system/systemTime")
+        return result if isinstance(result, dict) else {}
+
+    async def system_resources(self) -> dict:
+        """GET /diagnostics/system/system_resources -> the ``memory`` dict."""
+        result = await self._get("/diagnostics/system/system_resources")
+        return result if isinstance(result, dict) else {}
+
+    async def system_disk(self) -> list[dict]:
+        """GET /diagnostics/system/system_disk -> the ``devices`` filesystem list."""
+        result = await self._get("/diagnostics/system/system_disk")
+        if isinstance(result, dict):
+            devices = result.get("devices", [])
+            return devices if isinstance(devices, list) else []
+        return []
+
+    async def system_swap(self) -> list[dict]:
+        """GET /diagnostics/system/system_swap -> the ``swap`` device list."""
+        result = await self._get("/diagnostics/system/system_swap")
+        if isinstance(result, dict):
+            swap = result.get("swap", [])
+            return swap if isinstance(swap, list) else []
+        return []
+
+    async def system_mbuf(self) -> dict:
+        """GET /diagnostics/system/system_mbuf -> the ``mbuf-statistics`` dict."""
+        result = await self._get("/diagnostics/system/system_mbuf")
+        if isinstance(result, dict):
+            stats = result.get("mbuf-statistics", {})
+            return stats if isinstance(stats, dict) else {}
+        return {}
+
+    async def pf_states(self) -> dict:
+        """GET /diagnostics/firewall/pf_states -> {current, limit} state-table info."""
+        result = await self._get("/diagnostics/firewall/pf_states")
+        return result if isinstance(result, dict) else {}
+
+    async def services(self) -> list[dict]:
+        """POST /core/service/search -> the ``rows`` list of services.
+
+        Each row carries ``name``/``description`` and ``running`` (1/0).
+        """
+        result = await self._post(
+            "/core/service/search", {"current": 1, "rowCount": SEARCH_ROW_COUNT}
+        )
+        if isinstance(result, dict):
+            rows = result.get("rows", [])
+            return rows if isinstance(rows, list) else []
+        return []
+
     # ------------------------------------------------------------------
     # Write methods (low-level)
     # ------------------------------------------------------------------

@@ -1,6 +1,7 @@
 """DataUpdateCoordinator for the opnsense_hass integration."""
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
@@ -24,6 +25,7 @@ from .const import (
     DATA_ALIASES,
     DATA_FIRMWARE,
     DATA_GATEWAYS,
+    DATA_HEALTH,
     DATA_HOSTS,
     DATA_RULES,
     DATA_SYSTEM,
@@ -75,6 +77,41 @@ def _to_int(s: Any) -> int | None:
         return int(str(s).strip())
     except (ValueError, TypeError):
         return None
+
+
+def _pct(used: float | None, total: float | None) -> float | None:
+    """Return ``used/total`` as a 0–100 percentage rounded to 1dp, or None."""
+    if not total or used is None:
+        return None
+    try:
+        return round(used / total * 100, 1)
+    except (ZeroDivisionError, TypeError):
+        return None
+
+
+def _parse_loadavg(s: Any) -> list[float]:
+    """Parse ``"0.48, 0.41, 0.36"`` into ``[0.48, 0.41, 0.36]`` (best effort)."""
+    out: list[float] = []
+    for tok in str(s or "").replace(",", " ").split():
+        try:
+            out.append(float(tok))
+        except ValueError:
+            break
+    return out
+
+
+def _parse_uptime(s: Any) -> int | None:
+    """Parse OPNsense uptime (``"5 days, 11:42:05"``) into total seconds."""
+    text = str(s or "")
+    days = 0
+    m = re.search(r"(\d+)\s*day", text)
+    if m:
+        days = int(m.group(1))
+    hms = re.search(r"(\d{1,2}):(\d{2}):(\d{2})", text)
+    if not hms and not m:
+        return None
+    h, mnt, sec = (int(g) for g in hms.groups()) if hms else (0, 0, 0)
+    return days * 86400 + h * 3600 + mnt * 60 + sec
 
 
 def _normalize_updates(updates: Any) -> Any:
@@ -132,6 +169,9 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._if_names: dict[str, str] = {}
         # per-interface previous (bytes_in, bytes_out, monotonic_ts) for rate calc.
         self._prev_traffic: dict[str, tuple[int, int, float]] = {}
+        # CPU identity (cores used to normalise load average), fetched once.
+        self._cpu_model: str = ""
+        self._cpu_cores: int | None = None
 
     @property
     def tracked_aliases(self) -> list[str]:
@@ -162,6 +202,15 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         except OPNSenseError as err:
             LOGGER.debug("interface_names unavailable: %s", err)
             self._if_names = {}
+
+        # CPU identity is static; fetch once so we can normalise load average to
+        # a percentage (load / cores). Best-effort.
+        try:
+            self._cpu_model = await self.client.cpu_type()
+            m = re.search(r"(\d+)\s*cores?", self._cpu_model)
+            self._cpu_cores = int(m.group(1)) if m else None
+        except OPNSenseError as err:
+            LOGGER.debug("cpu_type unavailable: %s", err)
 
         product = (fw or {}).get("product", {})
         if not isinstance(product, dict):
@@ -211,6 +260,13 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             top_records = await self._safe(
                 lambda: self.client.top_talkers(self.top_interface), []
             )
+            systime = await self._safe(self.client.system_time, {})
+            resources = await self._safe(self.client.system_resources, {})
+            disks = await self._safe(self.client.system_disk, [])
+            swap = await self._safe(self.client.system_swap, [])
+            mbuf = await self._safe(self.client.system_mbuf, {})
+            states = await self._safe(self.client.pf_states, {})
+            services = await self._safe(self.client.services, [])
         except OPNSenseAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except OPNSenseError as err:
@@ -233,6 +289,10 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             DATA_TRAFFIC: self._build_traffic(traffic_raw),
             DATA_TOP_TALKERS: self._build_top(top_records, hosts),
             DATA_ALIAS_DEVICES: alias_devices,
+            DATA_HEALTH: self._build_health(
+                systime, resources, disks, swap, mbuf, states, services,
+                dhcp_rows, arp_rows,
+            ),
         }
 
     async def _safe(
@@ -446,6 +506,8 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         rate_out = (bytes_out - p_out) * 8 / dt
             if bytes_in is not None and bytes_out is not None:
                 self._prev_traffic[iface] = (bytes_in, bytes_out, now)
+            # FreeBSD link state: "2" == LINK_STATE_UP.
+            link_state = info.get("link state")
             out[iface] = {
                 "device": device,
                 "label": self._if_names.get(device) or iface.upper(),
@@ -455,6 +517,7 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "packets_out": _to_int(info.get("packets transmitted")),
                 "rate_in_bits": round(rate_in) if rate_in is not None else None,
                 "rate_out_bits": round(rate_out) if rate_out is not None else None,
+                "link_up": str(link_state) == "2" if link_state is not None else None,
             }
         return out
 
@@ -483,3 +546,90 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         talkers.sort(key=lambda t: t.get("rate_bits") or 0, reverse=True)
         return talkers[:TOP_TALKERS_LIMIT]
+
+    def _build_health(
+        self,
+        systime: dict,
+        resources: dict,
+        disks: list[dict],
+        swap: list[dict],
+        mbuf: dict,
+        states: dict,
+        services: list[dict],
+        dhcp_rows: list[dict],
+        arp_rows: list[dict],
+    ) -> dict[str, Any]:
+        """Fold the system-health endpoints into one flat metrics dict."""
+        health: dict[str, Any] = {"cpu_model": self._cpu_model, "cpu_cores": self._cpu_cores}
+
+        # CPU: load average + normalised usage (load_1m / cores).
+        load = _parse_loadavg(systime.get("loadavg"))
+        health["load_1m"] = load[0] if len(load) > 0 else None
+        health["load_5m"] = load[1] if len(load) > 1 else None
+        health["load_15m"] = load[2] if len(load) > 2 else None
+        if health["load_1m"] is not None and self._cpu_cores:
+            health["cpu_usage"] = round(health["load_1m"] / self._cpu_cores * 100, 1)
+        else:
+            health["cpu_usage"] = None
+        health["uptime"] = systime.get("uptime")
+        health["uptime_seconds"] = _parse_uptime(systime.get("uptime"))
+
+        # Memory + ZFS ARC (frmt fields are already in MB).
+        mem = resources.get("memory", {}) if isinstance(resources, dict) else {}
+        used = _to_int(mem.get("used"))
+        total = _to_int(mem.get("total"))
+        health["memory_usage"] = _pct(used, total)
+        health["memory_used_mb"] = _to_int(mem.get("used_frmt"))
+        health["memory_total_mb"] = _to_int(mem.get("total_frmt"))
+        health["arc_mb"] = _to_int(mem.get("arc_frmt"))
+
+        # Swap (KB totals across all swap devices).
+        s_total = sum(_to_int(d.get("total")) or 0 for d in swap)
+        s_used = sum(_to_int(d.get("used")) or 0 for d in swap)
+        health["swap_usage"] = _pct(s_used, s_total) if s_total else 0.0
+
+        # Disk: headline = the root filesystem; keep the full list as an attr.
+        root = next((d for d in disks if d.get("mountpoint") == "/"), None)
+        if root is None and disks:
+            root = disks[0]
+        health["disk_usage"] = (root or {}).get("used_pct")
+        health["filesystems"] = [
+            {
+                "mountpoint": d.get("mountpoint"),
+                "used_pct": d.get("used_pct"),
+                "used": d.get("used"),
+                "available": d.get("available"),
+            }
+            for d in disks
+            if isinstance(d, dict)
+        ]
+
+        # Firewall state table.
+        cur = _to_int(states.get("current"))
+        lim = _to_int(states.get("limit"))
+        health["states_current"] = cur
+        health["states_limit"] = lim
+        health["states_usage"] = _pct(cur, lim)
+
+        # mbuf clusters (the constrained resource on busy firewalls).
+        mb_cur = _to_int(mbuf.get("mbuf-current"))
+        mb_max = _to_int(mbuf.get("cluster-max")) or _to_int(mbuf.get("mbuf-total"))
+        health["mbuf_current"] = mb_cur
+        health["mbuf_max"] = mb_max
+        health["mbuf_usage"] = _pct(mb_cur, mb_max)
+
+        # Services.
+        running = [s for s in services if str(s.get("running")) == "1"]
+        health["services_running"] = len(running)
+        health["services_total"] = len(services)
+        health["services_stopped"] = sorted(
+            s.get("name") for s in services if str(s.get("running")) != "1" and s.get("name")
+        )
+
+        # Leases + ARP counts.
+        health["dhcp_total"] = len(dhcp_rows)
+        health["dhcp_online"] = sum(
+            1 for d in dhcp_rows if str(d.get("status", "")).lower() == "online"
+        )
+        health["arp_entries"] = len(arp_rows)
+        return health

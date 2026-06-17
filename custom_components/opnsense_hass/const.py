@@ -51,6 +51,7 @@ DATA_TRAFFIC: Final = "traffic"            # dict[iface_key, traffic_dict] (byte
 DATA_TOP_TALKERS: Final = "top_talkers"    # list[talker_dict], sorted desc by rate_bits
 DATA_HOSTS: Final = "hosts"                # dict[ip, host_dict] — DHCP+ARP identity index
 DATA_ALIAS_DEVICES: Final = "alias_devices"  # dict[alias_name, list[device_dict]] (tracked only)
+DATA_HEALTH: Final = "health"              # dict of system-health metrics (cpu/mem/disk/states/...)
 
 # ---- Service names ----
 SERVICE_ALIAS_ADD_HOST: Final = "alias_add_host"

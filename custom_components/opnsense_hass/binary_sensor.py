@@ -1,8 +1,8 @@
 """Binary sensor platform for the opnsense_hass integration.
 
-Exposes one connectivity binary sensor per OPNsense gateway. The on/off state is
-driven by the coordinator's ``status_translated`` field (NOT the raw ``status``),
-which the API normalises to human-readable values such as ``"Online"``.
+Exposes a connectivity binary sensor per OPNsense gateway (driven by the
+coordinator's ``status_translated`` field, not the raw ``status``), a
+per-interface physical-link sensor, and an updates-pending sensor.
 """
 
 from __future__ import annotations
@@ -13,11 +13,12 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
     BinarySensorEntity,
 )
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_GATEWAYS
+from .const import DATA_GATEWAYS, DATA_SYSTEM, DATA_TRAFFIC
 from .coordinator import OPNSenseConfigEntry, OPNSenseCoordinator
 
 
@@ -26,12 +27,17 @@ async def async_setup_entry(
     entry: OPNSenseConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the OPNsense gateway connectivity binary sensors."""
+    """Set up the OPNsense binary sensors (gateways, interface links, updates)."""
     coordinator = entry.runtime_data
-    gateways: dict[str, Any] = coordinator.data.get(DATA_GATEWAYS, {})
-    async_add_entities(
-        OPNSenseGatewayBinarySensor(coordinator, gw_name) for gw_name in gateways
-    )
+    entities: list[BinarySensorEntity] = [
+        OPNSenseGatewayBinarySensor(coordinator, gw_name)
+        for gw_name in coordinator.data.get(DATA_GATEWAYS, {})
+    ]
+    entities.append(OPNSenseUpdatesPendingBinarySensor(coordinator))
+    for iface, info in coordinator.data.get(DATA_TRAFFIC, {}).items():
+        if info.get("link_up") is not None:
+            entities.append(OPNSenseInterfaceLinkBinarySensor(coordinator, iface))
+    async_add_entities(entities)
 
 
 class OPNSenseGatewayBinarySensor(
@@ -79,3 +85,67 @@ class OPNSenseGatewayBinarySensor(
             "loss": data.get("loss"),
             "delay": data.get("delay"),
         }
+
+
+class OPNSenseUpdatesPendingBinarySensor(
+    CoordinatorEntity[OPNSenseCoordinator], BinarySensorEntity
+):
+    """On when OPNsense reports one or more pending firmware updates."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.UPDATE
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: OPNSenseCoordinator) -> None:
+        """Initialise the updates-pending binary sensor."""
+        super().__init__(coordinator)
+        self._attr_name = "Updates pending"
+        self._attr_unique_id = (
+            f"{coordinator.config_entry.entry_id}_updates_pending"
+        )
+        self._attr_device_info = coordinator.device_info
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when the normalised update count is greater than zero."""
+        value = self.coordinator.data.get(DATA_SYSTEM, {}).get("updates")
+        # bool is an int subclass; never treat True/False as a count.
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+class OPNSenseInterfaceLinkBinarySensor(
+    CoordinatorEntity[OPNSenseCoordinator], BinarySensorEntity
+):
+    """Physical link state of a single interface (on = link up)."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: OPNSenseCoordinator, iface: str) -> None:
+        """Initialise the interface-link binary sensor."""
+        super().__init__(coordinator)
+        self._iface = iface
+        label = (
+            coordinator.data.get(DATA_TRAFFIC, {}).get(iface, {}).get("label")
+            or iface.upper()
+        )
+        self._attr_name = f"{label} link"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_link_{iface}"
+        self._attr_device_info = coordinator.device_info
+
+    @property
+    def available(self) -> bool:
+        """Return True while the interface is still present in coordinator data."""
+        return super().available and self._iface in self.coordinator.data.get(
+            DATA_TRAFFIC, {}
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when the interface link is up."""
+        return bool(
+            self.coordinator.data.get(DATA_TRAFFIC, {})
+            .get(self._iface, {})
+            .get("link_up")
+        )
