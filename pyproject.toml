@@ -1,0 +1,5 @@
+[tool.pytest.ini_options]
+# Auto mode lets the bare `async def test_*` functions in tests/test_api.py run
+# under pytest-asyncio without a per-test @pytest.mark.asyncio decorator.
+asyncio_mode = "auto"
+testpaths = ["tests"]

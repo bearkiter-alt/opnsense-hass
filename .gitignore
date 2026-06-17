@@ -1,0 +1,12 @@
+# internal design doc (contains homelab specifics) — not for the public repo
+SPEC.md
+
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+.DS_Store

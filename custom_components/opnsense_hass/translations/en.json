@@ -1,0 +1,127 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to OPNsense",
+        "description": "Enter the base URL (no /api suffix) and an API key/secret pair from System > Access > Users.",
+        "data": {
+          "name": "Name",
+          "url": "Base URL",
+          "api_key": "API key",
+          "api_secret": "API secret",
+          "verify_ssl": "Verify SSL certificate",
+          "scan_interval": "Polling interval (seconds)"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate OPNsense",
+        "description": "Your API credentials were rejected. Enter a new API key and secret.",
+        "data": {
+          "api_key": "API key",
+          "api_secret": "API secret"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Failed to connect to the OPNsense API.",
+      "invalid_auth": "Invalid API key or secret.",
+      "unknown": "Unexpected error."
+    },
+    "abort": {
+      "already_configured": "This OPNsense host is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "OPNsense options",
+        "data": {
+          "scan_interval": "Polling interval (seconds)",
+          "tracked_aliases": "Tracked host aliases"
+        },
+        "data_description": {
+          "tracked_aliases": "Aliases to expose as item-count sensors and enable switches, and to poll live contents for."
+        }
+      }
+    }
+  },
+  "services": {
+    "alias_add_host": {
+      "name": "Add host to alias (runtime)",
+      "description": "Add an IP to an alias in the live pf table immediately. Not persistent across reboot.",
+      "fields": {
+        "alias": { "name": "Alias", "description": "Alias name." },
+        "address": { "name": "Address", "description": "IP address to add." }
+      }
+    },
+    "alias_remove_host": {
+      "name": "Remove host from alias (runtime)",
+      "description": "Remove an IP from an alias in the live pf table. Not persistent.",
+      "fields": {
+        "alias": { "name": "Alias", "description": "Alias name." },
+        "address": { "name": "Address", "description": "IP address to remove." }
+      }
+    },
+    "alias_flush": {
+      "name": "Flush alias (runtime)",
+      "description": "Flush all entries from an alias's live pf table.",
+      "fields": {
+        "alias": { "name": "Alias", "description": "Alias name." }
+      }
+    },
+    "alias_set_hosts": {
+      "name": "Set alias hosts (persistent)",
+      "description": "Replace an alias's contents with the given list and apply. Survives reboot.",
+      "fields": {
+        "alias": { "name": "Alias", "description": "Alias name." },
+        "addresses": { "name": "Addresses", "description": "Full list of IPs the alias should contain." }
+      }
+    },
+    "alias_block_device": {
+      "name": "Block device (persistent)",
+      "description": "Add a device IP to a host alias persistently and apply. Use to block internet via the alias's GUI rule.",
+      "fields": {
+        "alias": { "name": "Alias", "description": "Host alias referenced by a block rule." },
+        "address": { "name": "Address", "description": "Device IP to block." }
+      }
+    },
+    "alias_unblock_device": {
+      "name": "Unblock device (persistent)",
+      "description": "Remove a device IP from a host alias persistently and apply.",
+      "fields": {
+        "alias": { "name": "Alias", "description": "Host alias referenced by a block rule." },
+        "address": { "name": "Address", "description": "Device IP to unblock." }
+      }
+    },
+    "toggle_rule": {
+      "name": "Toggle filter rule",
+      "description": "Enable or disable an API-created firewall rule and apply the ruleset.",
+      "fields": {
+        "uuid": { "name": "Rule UUID", "description": "UUID of the API rule." },
+        "enabled": { "name": "Enabled", "description": "Whether the rule should be enabled." }
+      }
+    },
+    "apply": {
+      "name": "Apply changes",
+      "description": "Apply pending firewall changes.",
+      "fields": {
+        "target": { "name": "Target", "description": "What to apply: filter ruleset, alias config, or both." }
+      }
+    },
+    "exec_api": {
+      "name": "Execute raw API call",
+      "description": "Advanced passthrough to the OPNsense REST API. Returns the parsed response.",
+      "fields": {
+        "method": { "name": "Method", "description": "HTTP method (GET or POST)." },
+        "path": { "name": "Path", "description": "API path beginning with / (e.g. /core/firmware/status)." },
+        "body": { "name": "Body", "description": "Optional JSON body for POST." }
+      }
+    }
+  },
+  "exceptions": {
+    "alias_not_found": { "message": "No configured OPNsense entry owns alias '{alias}'." },
+    "rule_not_found": { "message": "No configured OPNsense entry owns rule '{uuid}'." },
+    "no_single_entry": { "message": "This action requires exactly one configured OPNsense entry." }
+  }
+}

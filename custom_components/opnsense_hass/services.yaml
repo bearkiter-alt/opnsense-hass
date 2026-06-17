@@ -1,0 +1,102 @@
+alias_add_host:
+  fields:
+    alias:
+      required: true
+      selector:
+        text:
+    address:
+      required: true
+      selector:
+        text:
+
+alias_remove_host:
+  fields:
+    alias:
+      required: true
+      selector:
+        text:
+    address:
+      required: true
+      selector:
+        text:
+
+alias_flush:
+  fields:
+    alias:
+      required: true
+      selector:
+        text:
+
+alias_set_hosts:
+  fields:
+    alias:
+      required: true
+      selector:
+        text:
+    addresses:
+      required: true
+      selector:
+        text:
+          multiple: true
+
+alias_block_device:
+  fields:
+    alias:
+      required: true
+      selector:
+        text:
+    address:
+      required: true
+      selector:
+        text:
+
+alias_unblock_device:
+  fields:
+    alias:
+      required: true
+      selector:
+        text:
+    address:
+      required: true
+      selector:
+        text:
+
+toggle_rule:
+  fields:
+    uuid:
+      required: true
+      selector:
+        text:
+    enabled:
+      required: true
+      selector:
+        boolean:
+
+apply:
+  fields:
+    target:
+      required: true
+      selector:
+        select:
+          options:
+            - "filter"
+            - "alias"
+            - "both"
+
+exec_api:
+  fields:
+    method:
+      required: true
+      selector:
+        select:
+          options:
+            - "GET"
+            - "POST"
+    path:
+      required: true
+      selector:
+        text:
+    body:
+      required: false
+      selector:
+        object:

@@ -1,0 +1,13 @@
+{
+  "domain": "opnsense_hass",
+  "name": "OPNsense (HASS)",
+  "codeowners": ["@bearkiter-alt"],
+  "config_flow": true,
+  "dependencies": [],
+  "documentation": "https://github.com/bearkiter-alt/opnsense-hass",
+  "integration_type": "hub",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/bearkiter-alt/opnsense-hass/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}
