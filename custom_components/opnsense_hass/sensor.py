@@ -247,12 +247,14 @@ async def async_setup_entry(
     entities.append(OPNSenseVersionSensor(coordinator))
     entities.append(OPNSenseUpdatesSensor(coordinator))
 
-    # Per-interface traffic sensors: live rate + cumulative bytes, each direction.
+    # Per-interface traffic sensors: live rate (in/out + combined throughput) and
+    # cumulative bytes (in/out).
     for iface in coordinator.data.get(DATA_TRAFFIC, {}):
-        for direction in ("in", "out"):
+        for direction in ("in", "out", "total"):
             entities.append(
                 OPNSenseTrafficRateSensor(coordinator, iface, direction)
             )
+        for direction in ("in", "out"):
             entities.append(
                 OPNSenseTrafficBytesSensor(coordinator, iface, direction)
             )
@@ -500,16 +502,22 @@ class OPNSenseTrafficRateSensor(_OPNSenseTrafficBase):
     def __init__(
         self, coordinator: OPNSenseCoordinator, iface: str, direction: str
     ) -> None:
-        """Initialise the rate sensor."""
+        """Initialise the rate sensor (direction ``in``/``out``/``total``)."""
         super().__init__(coordinator, iface, direction)
-        self._attr_name = f"{self._label} {_DIRECTION_LABEL[direction]} rate"
+        if direction == "total":
+            self._attr_name = f"{self._label} throughput"
+        else:
+            self._attr_name = f"{self._label} {_DIRECTION_LABEL[direction]} rate"
         self._attr_unique_id = (
             f"{coordinator.config_entry.entry_id}_traffic_{iface}_{direction}_rate"
         )
 
     @property
     def native_value(self) -> int | None:
-        """Return the derived bit rate for this direction (None until 2nd poll)."""
+        """Return the derived bit rate for this direction (None until 2nd poll).
+
+        ``total`` is the combined in+out throughput.
+        """
         return self._iface_data().get(f"rate_{self._direction}_bits")
 
 

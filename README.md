@@ -105,10 +105,11 @@ After setup, open the integration's **Configure** dialog:
   - Per tracked alias: **item count** — number of entries in the alias, with an
     `addresses` attribute (live IPs) and a `devices` attribute resolving each to
     `{ip, mac, name, manufacturer, online}`.
-  - Per interface (e.g. `lan`, `opt1`/WAN): **received/transmitted rate**
-    (`data_rate`, bit/s — display defaults to Mbit/s) and cumulative
-    **received/transmitted** bytes (`data_size`, `total_increasing`). Rates are
-    derived from the poll-to-poll delta, so they appear from the second poll on.
+  - Per interface (e.g. `lan`, `opt1`/WAN): **received/transmitted rate** plus a
+    combined **throughput** (in+out) (`data_rate`, bit/s — display defaults to
+    Mbit/s), and cumulative **received/transmitted** bytes (`data_size`,
+    `total_increasing`). Rates are derived from the poll-to-poll delta, so they
+    appear from the second poll on.
   - **Top talkers** — count of active talkers on the selected interface; the
     ranked, name-resolved list (`{ip, name, mac, rate_in_bits, rate_out_bits}`)
     is in the `talkers` attribute.

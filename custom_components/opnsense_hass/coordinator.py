@@ -517,6 +517,11 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "packets_out": _to_int(info.get("packets transmitted")),
                 "rate_in_bits": round(rate_in) if rate_in is not None else None,
                 "rate_out_bits": round(rate_out) if rate_out is not None else None,
+                "rate_total_bits": (
+                    round(rate_in + rate_out)
+                    if rate_in is not None and rate_out is not None
+                    else None
+                ),
                 "link_up": str(link_state) == "2" if link_state is not None else None,
             }
         return out
