@@ -98,6 +98,9 @@ After setup, open the integration's **Configure** dialog:
     `monitor`, `loss`, `delay`.
   - Per interface — **link** state (`connectivity`, `on` = link up).
   - **Updates pending** (`update`) — `on` when OPNsense reports pending updates.
+  - **Tailscale** (`connectivity`, `on` = service running) — only when the
+    *os-tailscale* plugin is installed; attributes include `enabled`,
+    `advertise_exit_node`, `accept_subnet_routes`, `exit_node`, `subnets`.
 - **Sensors**
   - Per gateway: **delay** (ms, duration) and **loss** (%, disabled by default — noisy).
   - **Version** — the OPNsense version string (diagnostic).

@@ -386,6 +386,22 @@ class OPNSenseClient:
             return rows if isinstance(rows, list) else []
         return []
 
+    async def tailscale_status(self) -> dict:
+        """GET /tailscale/service/status -> {status: running|stopped|...}.
+
+        From the optional os-tailscale plugin; raises (404) if not installed.
+        """
+        result = await self._get("/tailscale/service/status")
+        return result if isinstance(result, dict) else {}
+
+    async def tailscale_settings(self) -> dict:
+        """GET /tailscale/settings/get -> the ``settings`` dict (os-tailscale plugin)."""
+        result = await self._get("/tailscale/settings/get")
+        if isinstance(result, dict):
+            settings = result.get("settings", {})
+            return settings if isinstance(settings, dict) else {}
+        return {}
+
     # ------------------------------------------------------------------
     # Write methods (low-level)
     # ------------------------------------------------------------------

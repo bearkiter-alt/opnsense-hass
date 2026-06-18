@@ -29,6 +29,7 @@ from .const import (
     DATA_HOSTS,
     DATA_RULES,
     DATA_SYSTEM,
+    DATA_TAILSCALE,
     DATA_TOP_TALKERS,
     DATA_TRAFFIC,
     DEFAULT_SCAN_INTERVAL,
@@ -267,6 +268,8 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             mbuf = await self._safe(self.client.system_mbuf, {})
             states = await self._safe(self.client.pf_states, {})
             services = await self._safe(self.client.services, [])
+            ts_status = await self._safe(self.client.tailscale_status, {})
+            ts_settings = await self._safe(self.client.tailscale_settings, {})
         except OPNSenseAuthError as err:
             raise ConfigEntryAuthFailed(str(err)) from err
         except OPNSenseError as err:
@@ -293,6 +296,7 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 systime, resources, disks, swap, mbuf, states, services,
                 dhcp_rows, arp_rows,
             ),
+            DATA_TAILSCALE: self._build_tailscale(ts_status, ts_settings),
         }
 
     async def _safe(
@@ -638,3 +642,32 @@ class OPNSenseCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         health["arp_entries"] = len(arp_rows)
         return health
+
+    @staticmethod
+    def _build_tailscale(status: dict, settings: dict) -> dict[str, Any]:
+        """Normalize os-tailscale service status + settings.
+
+        Returns ``{}`` when the plugin is absent (both fetches empty) so no
+        Tailscale entity is created.
+        """
+        if not status and not settings:
+            return {}
+
+        def _selected(optmap: Any) -> Any:
+            if isinstance(optmap, dict):
+                for val in optmap.values():
+                    if isinstance(val, dict) and val.get("selected"):
+                        return val.get("value")
+            return None
+
+        st = status.get("status")
+        return {
+            "status": st,
+            "running": st == "running",
+            "enabled": str(settings.get("enabled")) == "1",
+            "advertise_exit_node": str(settings.get("advertiseExitNode")) == "1",
+            "accept_subnet_routes": str(settings.get("acceptSubnetRoutes")) == "1",
+            "accept_dns": str(settings.get("acceptDNS")) == "1",
+            "exit_node": _selected(settings.get("useExitNode")),
+            "subnets": settings.get("subnets") or "",
+        }

@@ -18,7 +18,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_GATEWAYS, DATA_SYSTEM, DATA_TRAFFIC
+from .const import DATA_GATEWAYS, DATA_SYSTEM, DATA_TAILSCALE, DATA_TRAFFIC
 from .coordinator import OPNSenseConfigEntry, OPNSenseCoordinator
 
 
@@ -37,6 +37,9 @@ async def async_setup_entry(
     for iface, info in coordinator.data.get(DATA_TRAFFIC, {}).items():
         if info.get("link_up") is not None:
             entities.append(OPNSenseInterfaceLinkBinarySensor(coordinator, iface))
+    # Tailscale (only when the os-tailscale plugin is present).
+    if coordinator.data.get(DATA_TAILSCALE):
+        entities.append(OPNSenseTailscaleBinarySensor(coordinator))
     async_add_entities(entities)
 
 
@@ -149,3 +152,42 @@ class OPNSenseInterfaceLinkBinarySensor(
             .get(self._iface, {})
             .get("link_up")
         )
+
+
+class OPNSenseTailscaleBinarySensor(
+    CoordinatorEntity[OPNSenseCoordinator], BinarySensorEntity
+):
+    """Tailscale service connectivity (os-tailscale plugin); on = running."""
+
+    _attr_has_entity_name = True
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_icon = "mdi:vpn"
+
+    def __init__(self, coordinator: OPNSenseCoordinator) -> None:
+        """Initialise the Tailscale binary sensor."""
+        super().__init__(coordinator)
+        self._attr_name = "Tailscale"
+        self._attr_unique_id = f"{coordinator.config_entry.entry_id}_tailscale"
+        self._attr_device_info = coordinator.device_info
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when the Tailscale service is running."""
+        return bool(self.coordinator.data.get(DATA_TAILSCALE, {}).get("running"))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose status + key Tailscale settings."""
+        ts = self.coordinator.data.get(DATA_TAILSCALE, {})
+        return {
+            k: ts.get(k)
+            for k in (
+                "status",
+                "enabled",
+                "advertise_exit_node",
+                "accept_subnet_routes",
+                "accept_dns",
+                "exit_node",
+                "subnets",
+            )
+        }

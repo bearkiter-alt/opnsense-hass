@@ -52,6 +52,7 @@ DATA_TOP_TALKERS: Final = "top_talkers"    # list[talker_dict], sorted desc by r
 DATA_HOSTS: Final = "hosts"                # dict[ip, host_dict] — DHCP+ARP identity index
 DATA_ALIAS_DEVICES: Final = "alias_devices"  # dict[alias_name, list[device_dict]] (tracked only)
 DATA_HEALTH: Final = "health"              # dict of system-health metrics (cpu/mem/disk/states/...)
+DATA_TAILSCALE: Final = "tailscale"        # dict: os-tailscale service status + settings ({} if plugin absent)
 
 # ---- Service names ----
 SERVICE_ALIAS_ADD_HOST: Final = "alias_add_host"
